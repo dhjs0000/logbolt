@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "logbolt"  # 包名应小写（PEP 8规范）
+version = "0.1.0"
+description = "一个高自定义、高速、简洁的日志IO库"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "dhjs0000", email = "3110197220@qq.com"}
+]
+maintainers = [
+    {name = "dhjs0000", email = "3110197220@qq.com"}
+]
+keywords = ["logging", "log", "io", "high-performance", "customizable", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Logging",
+]
+requires-python = ">=3.8"
+dependencies = []  # 核心库无依赖
+
+[project.optional-dependencies]
+# 高性能模式依赖
+performance = [
+    "atomics>=1.0.3; sys_platform!='win32'",  # 无锁文件处理器
+]
+# 开发者工具
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",  # 性能测试
+    "black>=23.0",
+    "flake8>=6.0",
+    "mypy>=1.0",
+    "pre-commit>=3.0",
+]
+# 完整功能
+all = [
+    "logbolt[performance]",
+]
+
+[project.urls]
+Homepage = "https://github.com/dhjs0000/logbolt"
+Repository = "https://github.com/dhjs0000/logbolt"
+Documentation = "https://github.com/dhjs0000/logbolt#readme"
+"Bug Tracker" = "https://github.com/dhjs0000/logbolt/issues"
+
+[tool.setuptools]
+# 使用src布局
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["logbolt*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=logbolt --cov-report=term-missing --benchmark-only"
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
