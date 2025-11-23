@@ -24,7 +24,22 @@ from .core import (
     quick_setup
 )
 
+# Lite版本 - 极致性能但使用复杂
+from .lite import (
+    UltraFastLogger,
+    BatchLogger,
+    StaticFormatter,
+    get_ultra_logger,
+    log_fast,
+    DEBUG,
+    INFO,
+    WARNING,
+    ERROR,
+    CRITICAL
+)
+
 __all__ = [
+    # 标准版本
     "LogBolt",
     "LogLevel", 
     "LogFormatter",
@@ -35,5 +50,16 @@ __all__ = [
     "ConsoleHandler",
     "Filter",
     "SamplingFilter",
-    "quick_setup"
+    "quick_setup",
+    # Lite版本
+    "UltraFastLogger",
+    "BatchLogger", 
+    "StaticFormatter",
+    "get_ultra_logger",
+    "log_fast",
+    "DEBUG",
+    "INFO", 
+    "WARNING",
+    "ERROR",
+    "CRITICAL"
 ]
