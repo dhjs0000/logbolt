@@ -513,12 +513,15 @@ class LogBolt:
         self._log(LogLevel.CRITICAL, msg, **kwargs)
     
     def close(self):
-        """关闭所有处理器"""
+        """关闭所有处理器（修复：等待异步完成）"""
+        # 先关闭调度器，等待剩余日志处理
+        dispatcher = AsyncDispatcher()
+        dispatcher.shutdown()  # 等待最多5秒
+        
+        # 再关闭各个处理器
         for handler in self.handlers:
             if hasattr(handler, 'close'):
                 handler.close()
-        # 关闭调度器
-        AsyncDispatcher().shutdown()
 
 
 def get_logger(name: str = "LogBolt") -> LogBolt:
