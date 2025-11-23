@@ -2,8 +2,9 @@
 FastAPI集成示例：全局请求日志追踪
 """
 from fastapi import FastAPI, Request
-from logbolt import LogBolt, LogLevel, LogFormatter
+from logbolt import LogBolt, LogLevel, LogFormatter, FileHandler
 import uuid
+import time
 
 # 创建全局Logger
 logger = LogBolt("api-server")

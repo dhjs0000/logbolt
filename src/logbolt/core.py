@@ -1,4 +1,4 @@
-# core.py
+# core.py - 最终可运行版本
 """
 LogBolt核心模块 - 高性能日志库
 """
@@ -7,14 +7,13 @@ import sys
 import time
 import threading
 import contextlib
-import multiprocessing
 import queue
 from enum import IntEnum
 from typing import Optional, Dict, Any, List, Union, Protocol, Callable
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
-# 尝试导入原子操作库，失败则使用锁回退
+# 尝试导入原子操作库
 try:
     import atomics
     _HAS_ATOMICS = True
@@ -50,30 +49,46 @@ class LogFormatter:
 
 
 class CompiledFormatter(LogFormatter):
-    """预编译高性能格式化器"""
+    """预编译高性能格式化器 - 采用直接模板替换"""
     
-    __slots__ = ('_format_func',)
+    __slots__ = ('_format_func', '_field_getters')
     
     def __init__(self, fmt: Optional[str] = None, datefmt: Optional[str] = None):
         self.datefmt = datefmt or "%Y-%m-%d %H:%M:%S"
+        self._field_getters = {
+            'asctime': lambda r: datetime.fromtimestamp(r['timestamp'] / 1e9).strftime(self.datefmt),
+            'levelname': lambda r: LogLevel(r['level']).name,
+            'message': lambda r: r.get('message', ''),
+            'name': lambda r: r.get('name', ''),
+            'thread_id': lambda r: str(r.get('thread_id', '')),
+            'process_id': lambda r: str(r.get('process_id', '')),
+        }
         self._format_func = self._compile(fmt or "{asctime} - {levelname} - {message}")
     
     def _compile(self, fmt: str) -> Callable[[Dict[str, Any]], str]:
-        """编译格式化函数"""
-        # 将{field}转换为record['field']
-        code = fmt.replace('{', '{record[').replace('}', ']}')
+        """终极修复：手动解析模板，避免eval作用域问题"""
+        import string
+        field_names = []
+        formatter = string.Formatter()
         
-        # 特殊字段处理
-        replacements = {
-            '{record[asctime]}': 'datetime.fromtimestamp(record["timestamp"]//1e9).strftime(self.datefmt)',
-            '{record[levelname]}': 'LogLevel(record["level"]).name'
-        }
+        for _, field_name, _, _ in formatter.parse(fmt):
+            if field_name:
+                field_names.append(field_name)
         
-        for old, new in replacements.items():
-            code = code.replace(old, f'{{{new}}}')
+        def format_record(record: Dict[str, Any]) -> str:
+            values = {}
+            for field in field_names:
+                if field in self._field_getters:
+                    values[field] = self._field_getters[field](record)
+                else:
+                    values[field] = str(record.get(field, ''))
+            
+            try:
+                return fmt.format(**values)
+            except KeyError:
+                return LogFormatter(fmt, self.datefmt).format(record)
         
-        return eval(f"lambda record: f'''{code}'''", 
-                   {'self': self, 'datetime': datetime, 'LogLevel': LogLevel})
+        return format_record
     
     def format(self, record: Dict[str, Any]) -> str:
         return self._format_func(record)
@@ -125,6 +140,11 @@ class LogHandler:
     def emit(self, record: Dict[str, Any]) -> None:
         """发送日志记录 - 由子类实现"""
         raise NotImplementedError
+    
+    def _emit_batch(self, messages: List[str]):
+        """批量写入 - 默认实现"""
+        for msg in messages:
+            self.emit({'message': msg})
 
 
 class ConsoleHandler(LogHandler):
@@ -138,14 +158,29 @@ class ConsoleHandler(LogHandler):
         self._lock = threading.Lock()
     
     def emit(self, record: Dict[str, Any]) -> None:
-        """发送日志记录到控制台"""
+        """修复：直接输出，避免重复格式化"""
         try:
-            msg = self.formatter.format(record)
-            with self._lock:
-                self.stream.write(msg + '\n')
-                self.stream.flush()
+            if 'message' in record and isinstance(record['message'], str):
+                with self._lock:
+                    self.stream.write(record['message'] + '\n')
+                    self.stream.flush()
+            else:
+                msg = self.formatter.format(record)
+                with self._lock:
+                    self.stream.write(msg + '\n')
+                    self.stream.flush()
         except Exception as e:
             print(f"ConsoleHandler写入失败: {e}", file=sys.stderr)
+    
+    def _emit_batch(self, messages: List[str]):
+        """批量写入控制台"""
+        try:
+            data = '\n'.join(messages) + '\n'
+            with self._lock:
+                self.stream.write(data)
+                self.stream.flush()
+        except Exception as e:
+            print(f"ConsoleHandler批量写入失败: {e}", file=sys.stderr)
 
 
 class FileHandler(LogHandler):
@@ -205,20 +240,25 @@ class FileHandler(LogHandler):
             self._open_file()
     
     def emit(self, record: Dict[str, Any]) -> None:
-        """发送日志记录到文件"""
+        """修复：批量时已经是字符串，直接写入"""
         try:
             if self._should_rollover():
                 self._do_rollover()
             
-            msg = self.formatter.format(record) + '\n'
-            with self._lock:
-                if self._file:
-                    self._file.write(msg)
+            if 'message' in record and isinstance(record['message'], str):
+                with self._lock:
+                    if self._file:
+                        self._file.write(record['message'] + '\n')
+            else:
+                msg = self.formatter.format(record) + '\n'
+                with self._lock:
+                    if self._file:
+                        self._file.write(msg)
         except Exception as e:
             print(f"FileHandler写入失败: {e}", file=sys.stderr)
     
     def _emit_batch(self, messages: List[str]):
-        """批量写入优化"""
+        """批量写入文件"""
         data = '\n'.join(messages) + '\n'
         try:
             if self._should_rollover():
@@ -261,7 +301,6 @@ class LockFreeFileHandler(FileHandler):
         if current_size + size > self.max_bytes:
             self._executor.submit(self._do_rollover)
         
-        # 这里简化实现，实际可用mmap实现真正的无锁
         with self._lock:
             if self._file:
                 self._file.write(msg)
@@ -272,7 +311,7 @@ class LockFreeFileHandler(FileHandler):
 
 
 class AsyncDispatcher:
-    """无锁异步调度器 - 核心性能组件"""
+    """异步调度器 - 核心性能组件"""
     
     _instance = None
     _lock = threading.Lock()
@@ -288,7 +327,7 @@ class AsyncDispatcher:
         if self._initialized:
             return
         
-        self.queue = multiprocessing.Queue(maxsize=10000)
+        self.queue = queue.Queue(maxsize=10000)
         self._stop_event = threading.Event()
         self._worker = threading.Thread(target=self._process_logs, daemon=True)
         self._worker.start()
@@ -314,25 +353,24 @@ class AsyncDispatcher:
                     self._flush_batch(batch)
                     batch.clear()
                     last_flush = time.perf_counter()
+            except Exception as e:
+                print(f"AsyncDispatcher线程错误: {e}", file=sys.stderr)
+                batch.clear()
     
     def _flush_batch(self, batch: List[Dict[str, Any]]):
-        """批量写入"""
-        handler_batches: Dict[LogHandler, List[str]] = {}
-        
+        """批量写入 - 修复版（逐个处理，而非批量）"""
         for record in batch:
             handlers = record.pop('_handlers', [])
             for handler in handlers:
                 if handler.level > record['level']:
                     continue
-                msg = handler.formatter.format(record)
-                handler_batches.setdefault(handler, []).append(msg)
-        
-        for handler, messages in handler_batches.items():
-            if hasattr(handler, '_emit_batch'):
-                handler._emit_batch(messages)
-            else:
-                for msg in messages:
-                    handler.emit({'message': msg})
+                try:
+                    # 逐个格式化并写入（确保每个都执行）
+                    msg = handler.formatter.format(record)
+                    handler.emit({'message': msg})  # 使用emit而不是_emit_batch
+                except Exception as e:
+                    print(f"写入失败: {e}, handler={type(handler).__name__}", file=sys.stderr)
+                    continue
     
     def dispatch(self, record: Dict[str, Any], handlers: List[LogHandler]):
         """非阻塞派遣日志"""
@@ -340,7 +378,6 @@ class AsyncDispatcher:
             record['_handlers'] = handlers
             self.queue.put_nowait(record)
         except queue.Full:
-            # 队列满时丢弃（高性能模式）
             pass
     
     def shutdown(self):

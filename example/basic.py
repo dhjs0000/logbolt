@@ -1,29 +1,35 @@
-"""
-LogBolt基础使用示例
-"""
+# example/basic.py - 最终版
+import sys
+sys.path.insert(0, 'src')
+
+import os
+import time
 from logbolt import LogBolt, LogLevel, ConsoleHandler, FileHandler, CompiledFormatter
 
-# 方式1：手动装配Logger
+# 确保目录存在
+os.makedirs("logs", exist_ok=True)
+
+# 创建logger
 logger = LogBolt("myapp")
 logger.set_level(LogLevel.DEBUG)
 
-# 添加控制台输出（带颜色）
+# 控制台处理器
 console = ConsoleHandler(LogLevel.DEBUG)
 console.set_formatter(CompiledFormatter(
-    fmt="\033[92m{asctime}\033[0m \033[93m[{levelname}]\033[0m {message}",
+    fmt="{asctime} [{levelname}] {message}",
     datefmt="%H:%M:%S"
 ))
 logger.add_handler(console)
 
-# 添加文件输出（自动轮转）
+# 文件处理器（关键：级别设置为DEBUG）
 file_handler = FileHandler(
     filename="logs/app.log",
-    level=LogLevel.INFO,
-    max_bytes=1024*1024,  # 1MB
+    level=LogLevel.DEBUG,  # 必须与logger级别一致或更低
+    max_bytes=1024*1024,
     backup_count=3
 )
 file_handler.set_formatter(CompiledFormatter(
-    fmt="{asctime} | {levelname:8} | {thread_id:5} | {message}",
+    fmt="{asctime} | {levelname:8} | {message}",
     datefmt="%Y-%m-%d %H:%M:%S.%f"
 ))
 logger.add_handler(file_handler)
@@ -35,5 +41,17 @@ logger.warning("磁盘使用率超过85%", usage="87%")
 logger.error("数据库连接失败", host="192.168.1.100")
 logger.critical("系统崩溃", error_code=500)
 
-# 关闭日志（释放资源）
-logger.close()
+# **关键：必须等待异步完成 + 关闭logger**
+print("等待日志写入完成...")
+time.sleep(1.0)  # 等待1秒确保所有日志写入
+logger.close()   # 关闭会强制刷新
+
+# 验证文件
+print(f"\n验证文件内容:")
+if os.path.exists("logs/app.log"):
+    print(f"文件大小: {os.path.getsize('logs/app.log')} bytes")
+    print("文件内容:")
+    with open("logs/app.log", "r") as f:
+        print(f.read())
+else:
+    print("❌ 文件不存在！")
