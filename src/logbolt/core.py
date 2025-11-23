@@ -201,7 +201,10 @@ class FileHandler(LogHandler):
     def _open_file(self):
         """打开日志文件"""
         try:
-            os.makedirs(os.path.dirname(self.filename), exist_ok=True)
+            # 确保目录存在
+            directory = os.path.dirname(self.filename)
+            if directory:  # 只有在有目录部分时才创建
+                os.makedirs(directory, exist_ok=True)
             self._file = open(self.filename, 'a', encoding='utf-8', buffering=8192)
         except IOError as e:
             print(f"无法打开日志文件 {self.filename}: {e}", file=sys.stderr)
@@ -249,11 +252,13 @@ class FileHandler(LogHandler):
                 with self._lock:
                     if self._file:
                         self._file.write(record['message'] + '\n')
+                        self._file.flush()  # 添加flush确保数据写入
             else:
                 msg = self.formatter.format(record) + '\n'
                 with self._lock:
                     if self._file:
                         self._file.write(msg)
+                        self._file.flush()  # 添加flush确保数据写入
         except Exception as e:
             print(f"FileHandler写入失败: {e}", file=sys.stderr)
     
@@ -267,6 +272,7 @@ class FileHandler(LogHandler):
             with self._lock:
                 if self._file:
                     self._file.write(data)
+                    self._file.flush()  # 添加flush确保数据写入
         except Exception as e:
             print(f"FileHandler批量写入失败: {e}", file=sys.stderr)
     
@@ -287,8 +293,13 @@ class LockFreeFileHandler(FileHandler):
         if not _HAS_ATOMICS:
             raise RuntimeError("LockFreeFileHandler需要atomics库: pip install atomics")
         super().__init__(*args, **kwargs)
+        # 安全地获取文件大小，处理文件不存在的情况
+        try:
+            initial_size = os.path.getsize(self.filename)
+        except (OSError, IOError):
+            initial_size = 0
         self._size_counter = atomics.atomic(width=8, atype=atomics.INT, 
-                                           value=os.path.getsize(self.filename))
+                                           value=initial_size)
         self._executor = ThreadPoolExecutor(max_workers=1)
     
     def emit(self, record: Dict[str, Any]) -> None:
@@ -327,10 +338,10 @@ class LockFreeFileHandler(FileHandler):
                     self._file.write(data)
         except Exception as e:
             print(f"LockFreeFileHandler批量写入失败: {e}", file=sys.stderr)
-        
-        def close(self):
-            super().close()
-            self._executor.shutdown(wait=True)
+    
+    def close(self):
+        super().close()
+        self._executor.shutdown(wait=True)
 
 
 class AsyncDispatcher:
@@ -385,7 +396,7 @@ class AsyncDispatcher:
         for record in batch:
             handlers = record.pop('_handlers', [])
             for handler in handlers:
-                if handler.level > record['level']:
+                if record['level'] < handler.level:  # 修复：正确的级别比较
                     continue
                 try:
                     # 逐个格式化并写入（确保每个都执行）
