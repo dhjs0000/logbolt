@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "logbolt"  # 包名应小写（PEP 8规范）
-version = "0.1.1"
+version = "0.1.2"
 description = "一个高自定义、高速、简洁的日志IO库"
 readme = "README.md"
 license = {text = "MIT"}
