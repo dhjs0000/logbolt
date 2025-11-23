@@ -292,22 +292,45 @@ class LockFreeFileHandler(FileHandler):
         self._executor = ThreadPoolExecutor(max_workers=1)
     
     def emit(self, record: Dict[str, Any]) -> None:
-        """无锁写入（简化版）"""
-        msg = self.formatter.format(record) + '\n'
-        data = msg.encode('utf-8')
-        size = len(data)
+        """无锁写入（修复：支持批量字符串模式）"""
+        try:
+            # 如果已经是格式化后的字符串
+            if 'message' in record and isinstance(record['message'], str):
+                msg = record['message'] + '\n'
+            else:
+                # 否则执行格式化
+                msg = self.formatter.format(record) + '\n'
+            
+            data = msg.encode('utf-8')
+            size = len(data)
+            
+            current_size = self._size_counter.fetch_add(size)
+            if current_size + size > self.max_bytes:
+                self._executor.submit(self._do_rollover)
+            
+            with self._lock:
+                if self._file:
+                    self._file.write(msg)
+        except Exception as e:
+            print(f"LockFreeFileHandler写入失败: {e}", file=sys.stderr)
+
+    # 同时添加批量写入方法
+    def _emit_batch(self, messages: List[str]):
+        """批量写入支持"""
+        data = '\n'.join(messages) + '\n'
+        try:
+            if self._should_rollover():
+                self._executor.submit(self._do_rollover)
+            
+            with self._lock:
+                if self._file:
+                    self._file.write(data)
+        except Exception as e:
+            print(f"LockFreeFileHandler批量写入失败: {e}", file=sys.stderr)
         
-        current_size = self._size_counter.fetch_add(size)
-        if current_size + size > self.max_bytes:
-            self._executor.submit(self._do_rollover)
-        
-        with self._lock:
-            if self._file:
-                self._file.write(msg)
-    
-    def close(self):
-        super().close()
-        self._executor.shutdown(wait=True)
+        def close(self):
+            super().close()
+            self._executor.shutdown(wait=True)
 
 
 class AsyncDispatcher:

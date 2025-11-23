@@ -55,7 +55,3 @@ if __name__ == "__main__":
     print("\n=== 标准logging性能测试 ===")
     duration = benchmark_std_logging()
     print(f"标准logging: {total_logs}条日志, {duration:.2f}秒, {total_logs/duration:.0f}条/秒")
-    
-    # 清理
-    import shutil
-    shutil.rmtree("logs", ignore_errors=True)
